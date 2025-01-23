@@ -7,6 +7,7 @@ static FuriStreamBuffer* stdout_buffer = NULL;
 
 static void write_to_stdout_buffer(const char* data, size_t size, void* context) {
     UNUSED(context);
+
     furi_stream_buffer_send(stdout_buffer, data, size, 0);
 }
 
