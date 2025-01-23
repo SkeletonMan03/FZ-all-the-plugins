@@ -7,15 +7,17 @@
 
 #define CLOCK_ISO_DATE_FORMAT "%.4d-%.2d-%.2d"
 #define CLOCK_RFC_DATE_FORMAT "%.2d-%.2d-%.4d"
-#define CLOCK_TIME_FORMAT "%.2d:%.2d:%.2d"
+#define CLOCK_TIME_FORMAT     "%.2d:%.2d:%.2d"
 
-#define MERIDIAN_FORMAT "%s"
+#define MERIDIAN_FORMAT    "%s"
 #define MERIDIAN_STRING_AM "AM"
 #define MERIDIAN_STRING_PM "PM"
 
-#define TIME_LEN 12
-#define DATE_LEN 14
+#define TIME_LEN     12
+#define DATE_LEN     14
 #define MERIDIAN_LEN 3
+#define BATTERY_LEN  4
+#define DATE_PCT_LEN 21
 
 typedef enum {
     EventTypeTick,
@@ -36,4 +38,5 @@ typedef struct {
     uint32_t timer_start_timestamp;
     uint32_t timer_stopped_seconds;
     bool timer_running;
+    uint8_t battery_pct;
 } ClockState;
