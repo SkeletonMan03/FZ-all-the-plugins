@@ -1,9 +1,11 @@
-#include "nfc_maker_text_input.h"
+#include "text_input.h"
 #include <gui/elements.h>
-#include "nfc_maker.h"
+
 #include <furi.h>
 
-struct NFCMaker_TextInput {
+#include <nfc_maker_icons.h>
+
+struct TextInput {
     View* view;
     FuriTimer* timer;
 };
@@ -12,10 +14,10 @@ typedef struct {
     const char text;
     const uint8_t x;
     const uint8_t y;
-} NFCMaker_TextInputKey;
+} TextInputKey;
 
 typedef struct {
-    const NFCMaker_TextInputKey* rows[3];
+    const TextInputKey* rows[3];
     const uint8_t keyboard_index;
 } Keyboard;
 
@@ -26,32 +28,33 @@ typedef struct {
     size_t minimum_length;
     bool clear_default_text;
 
-    bool cursor_select;
-    size_t cursor_pos;
-
-    NFCMaker_TextInputCallback callback;
+    TextInputCallback callback;
     void* callback_context;
 
     uint8_t selected_row;
     uint8_t selected_column;
-    uint8_t selected_keyboard;
 
-    NFCMaker_TextInputValidatorCallback validator_callback;
+    TextInputValidatorCallback validator_callback;
     void* validator_callback_context;
     FuriString* validator_text;
     bool validator_message_visible;
-} NFCMaker_TextInputModel;
+
+    bool illegal_symbols;
+    bool cursor_select;
+    uint8_t selected_keyboard;
+    size_t cursor_pos;
+} TextInputModel;
 
 static const uint8_t keyboard_origin_x = 1;
 static const uint8_t keyboard_origin_y = 29;
 static const uint8_t keyboard_row_count = 3;
 static const uint8_t keyboard_count = 2;
 
-#define ENTER_KEY '\r'
-#define BACKSPACE_KEY '\b'
-#define SWITCH_KEYBOARD_KEY 0xfe
+#define ENTER_KEY           '\r'
+#define BACKSPACE_KEY       '\b'
+#define SWITCH_KEYBOARD_KEY '\t'
 
-static const NFCMaker_TextInputKey keyboard_keys_row_1[] = {
+static const TextInputKey keyboard_keys_row_1[] = {
     {'q', 1, 8},
     {'w', 10, 8},
     {'e', 19, 8},
@@ -62,13 +65,13 @@ static const NFCMaker_TextInputKey keyboard_keys_row_1[] = {
     {'i', 64, 8},
     {'o', 73, 8},
     {'p', 82, 8},
-    {'0', 91, 8},
-    {'1', 100, 8},
-    {'2', 110, 8},
+    {'0', 92, 8},
+    {'1', 102, 8},
+    {'2', 111, 8},
     {'3', 120, 8},
 };
 
-static const NFCMaker_TextInputKey keyboard_keys_row_2[] = {
+static const TextInputKey keyboard_keys_row_2[] = {
     {'a', 1, 20},
     {'s', 10, 20},
     {'d', 19, 20},
@@ -78,29 +81,29 @@ static const NFCMaker_TextInputKey keyboard_keys_row_2[] = {
     {'j', 55, 20},
     {'k', 64, 20},
     {'l', 73, 20},
-    {BACKSPACE_KEY, 82, 12},
-    {'4', 100, 20},
-    {'5', 110, 20},
+    {BACKSPACE_KEY, 82, 11},
+    {'4', 102, 20},
+    {'5', 111, 20},
     {'6', 120, 20},
 };
 
-static const NFCMaker_TextInputKey keyboard_keys_row_3[] = {
-    {SWITCH_KEYBOARD_KEY, 1, 23},
+static const TextInputKey keyboard_keys_row_3[] = {
+    {SWITCH_KEYBOARD_KEY, 0, 23},
     {'z', 13, 32},
     {'x', 21, 32},
-    {'c', 28, 32},
-    {'v', 36, 32},
-    {'b', 44, 32},
-    {'n', 52, 32},
-    {'m', 59, 32},
-    {'_', 67, 32},
-    {ENTER_KEY, 74, 23},
-    {'7', 100, 32},
-    {'8', 110, 32},
+    {'c', 29, 32},
+    {'v', 37, 32},
+    {'b', 45, 32},
+    {'n', 53, 32},
+    {'m', 61, 32},
+    {'_', 69, 32},
+    {ENTER_KEY, 77, 23},
+    {'7', 102, 32},
+    {'8', 111, 32},
     {'9', 120, 32},
 };
 
-static const NFCMaker_TextInputKey symbol_keyboard_keys_row_1[] = {
+static const TextInputKey symbol_keyboard_keys_row_1[] = {
     {'!', 2, 8},
     {'@', 12, 8},
     {'#', 22, 8},
@@ -110,13 +113,13 @@ static const NFCMaker_TextInputKey symbol_keyboard_keys_row_1[] = {
     {'&', 62, 8},
     {'(', 71, 8},
     {')', 81, 8},
-    {'0', 91, 8},
-    {'1', 100, 8},
-    {'2', 110, 8},
+    {'0', 92, 8},
+    {'1', 102, 8},
+    {'2', 111, 8},
     {'3', 120, 8},
 };
 
-static const NFCMaker_TextInputKey symbol_keyboard_keys_row_2[] = {
+static const TextInputKey symbol_keyboard_keys_row_2[] = {
     {'~', 2, 20},
     {'+', 12, 20},
     {'-', 22, 20},
@@ -125,22 +128,22 @@ static const NFCMaker_TextInputKey symbol_keyboard_keys_row_2[] = {
     {']', 52, 20},
     {'{', 62, 20},
     {'}', 72, 20},
-    {BACKSPACE_KEY, 82, 12},
-    {'4', 100, 20},
-    {'5', 110, 20},
+    {BACKSPACE_KEY, 82, 11},
+    {'4', 102, 20},
+    {'5', 111, 20},
     {'6', 120, 20},
 };
 
-static const NFCMaker_TextInputKey symbol_keyboard_keys_row_3[] = {
-    {SWITCH_KEYBOARD_KEY, 1, 23},
+static const TextInputKey symbol_keyboard_keys_row_3[] = {
+    {SWITCH_KEYBOARD_KEY, 0, 23},
     {'.', 15, 32},
     {',', 29, 32},
-    {':', 41, 32},
-    {'/', 53, 32},
+    {';', 41, 32},
+    {'`', 53, 32},
     {'\'', 65, 32},
-    {ENTER_KEY, 74, 23},
-    {'7', 100, 32},
-    {'8', 110, 32},
+    {ENTER_KEY, 77, 23},
+    {'7', 102, 32},
+    {'8', 111, 32},
     {'9', 120, 32},
 };
 
@@ -169,7 +172,7 @@ static const Keyboard* keyboards[] = {
     &symbol_keyboard,
 };
 
-static void switch_keyboard(NFCMaker_TextInputModel* model) {
+static void switch_keyboard(TextInputModel* model) {
     model->selected_keyboard = (model->selected_keyboard + 1) % keyboard_count;
 }
 
@@ -187,7 +190,7 @@ static uint8_t get_row_size(const Keyboard* keyboard, uint8_t row_index) {
             row_size = COUNT_OF(symbol_keyboard_keys_row_3);
             break;
         default:
-            furi_crash(NULL);
+            furi_crash();
         }
     } else {
         switch(row_index + 1) {
@@ -201,53 +204,72 @@ static uint8_t get_row_size(const Keyboard* keyboard, uint8_t row_index) {
             row_size = COUNT_OF(keyboard_keys_row_3);
             break;
         default:
-            furi_crash(NULL);
+            furi_crash();
         }
     }
 
     return row_size;
 }
 
-static const NFCMaker_TextInputKey* get_row(const Keyboard* keyboard, uint8_t row_index) {
-    const NFCMaker_TextInputKey* row = NULL;
+static const TextInputKey* get_row(const Keyboard* keyboard, uint8_t row_index) {
+    const TextInputKey* row = NULL;
     if(row_index < 3) {
         row = keyboard->rows[row_index];
     } else {
-        furi_crash(NULL);
+        furi_crash();
     }
 
     return row;
 }
 
-static char get_selected_char(NFCMaker_TextInputModel* model) {
+static char get_selected_char(TextInputModel* model) {
     return get_row(
                keyboards[model->selected_keyboard], model->selected_row)[model->selected_column]
         .text;
 }
 
 static bool char_is_lowercase(char letter) {
-    return (letter >= 0x61 && letter <= 0x7A);
+    return letter >= 0x61 && letter <= 0x7A;
 }
 
 static char char_to_uppercase(const char letter) {
     if(letter == '_') {
         return 0x20;
-    } else if(letter == ':') {
-        return 0x3B;
-    } else if(letter == '/') {
-        return 0x5C;
-    } else if(letter == '\'') {
-        return 0x60;
-    } else if(letter == '.') {
-        return 0x2A;
     } else if(char_is_lowercase(letter)) {
-        return (letter - 0x20);
+        return letter - 0x20;
     } else {
         return letter;
     }
 }
 
-static void nfc_maker_text_input_backspace_cb(NFCMaker_TextInputModel* model) {
+static char char_to_illegal_symbol(char original) {
+    switch(original) {
+    default:
+        return original;
+    case '0':
+        return '_';
+    case '1':
+        return '<';
+    case '2':
+        return '>';
+    case '3':
+        return ':';
+    case '4':
+        return '"';
+    case '5':
+        return '/';
+    case '6':
+        return '\\';
+    case '7':
+        return '|';
+    case '8':
+        return '?';
+    case '9':
+        return '*';
+    }
+}
+
+static void text_input_backspace_cb(TextInputModel* model) {
     if(model->clear_default_text) {
         model->text_buffer[0] = 0;
         model->cursor_pos = 0;
@@ -258,8 +280,8 @@ static void nfc_maker_text_input_backspace_cb(NFCMaker_TextInputModel* model) {
     }
 }
 
-static void nfc_maker_text_input_view_draw_callback(Canvas* canvas, void* _model) {
-    NFCMaker_TextInputModel* model = _model;
+static void text_input_view_draw_callback(Canvas* canvas, void* _model) {
+    TextInputModel* model = _model;
     uint8_t text_length = model->text_buffer ? strlen(model->text_buffer) : 0;
     uint8_t needed_string_width = canvas_width(canvas) - 8;
     uint8_t start_pos = 4;
@@ -273,7 +295,7 @@ static void nfc_maker_text_input_view_draw_callback(Canvas* canvas, void* _model
     canvas_draw_str(canvas, 2, 8, model->header);
     elements_slightly_rounded_frame(canvas, 1, 12, 126, 15);
 
-    char buf[model->text_buffer_size + 1];
+    char buf[text_length + 1];
     if(model->text_buffer) {
         strlcpy(buf, model->text_buffer, sizeof(buf));
     }
@@ -307,27 +329,29 @@ static void nfc_maker_text_input_view_draw_callback(Canvas* canvas, void* _model
         while(len && canvas_string_width(canvas, str) > needed_string_width) {
             str[len--] = '\0';
         }
-        strcat(str, "...");
+        strlcat(str, "...", sizeof(buf) - (str - buf));
     }
 
     canvas_draw_str(canvas, start_pos, 22, str);
 
     canvas_set_font(canvas, FontKeyboard);
 
+    bool uppercase = model->clear_default_text || text_length == 0;
+    bool symbols = model->selected_keyboard == symbol_keyboard.keyboard_index;
     for(uint8_t row = 0; row < keyboard_row_count; row++) {
         const uint8_t column_count = get_row_size(keyboards[model->selected_keyboard], row);
-        const NFCMaker_TextInputKey* keys = get_row(keyboards[model->selected_keyboard], row);
+        const TextInputKey* keys = get_row(keyboards[model->selected_keyboard], row);
 
         for(size_t column = 0; column < column_count; column++) {
             bool selected = !model->cursor_select && model->selected_row == row &&
                             model->selected_column == column;
             const Icon* icon = NULL;
             if(keys[column].text == ENTER_KEY) {
-                icon = selected ? &I_KeySaveSelected_24x11 : &I_KeySave_24x11;
+                icon = selected ? &I_KeySaveSelected_22x11 : &I_KeySave_22x11;
             } else if(keys[column].text == SWITCH_KEYBOARD_KEY) {
                 icon = selected ? &I_KeyKeyboardSelected_10x11 : &I_KeyKeyboard_10x11;
             } else if(keys[column].text == BACKSPACE_KEY) {
-                icon = selected ? &I_KeyBackspaceSelected_16x9 : &I_KeyBackspace_16x9;
+                icon = selected ? &I_KeyBackspaceSelected_17x11 : &I_KeyBackspace_17x11;
             }
             canvas_set_color(canvas, ColorBlack);
             if(icon != NULL) {
@@ -338,27 +362,30 @@ static void nfc_maker_text_input_view_draw_callback(Canvas* canvas, void* _model
                     icon);
             } else {
                 if(selected) {
-                    canvas_draw_box(
+                    elements_slightly_rounded_box(
                         canvas,
-                        keyboard_origin_x + keys[column].x - 1,
-                        keyboard_origin_y + keys[column].y - 8,
-                        7,
-                        10);
+                        keyboard_origin_x + keys[column].x - 2,
+                        keyboard_origin_y + keys[column].y - 9,
+                        9,
+                        11);
                     canvas_set_color(canvas, ColorWhite);
                 }
 
-                if(model->clear_default_text || text_length == 0) {
+                char glyph = keys[column].text;
+                if(uppercase && !symbols) {
                     canvas_draw_glyph(
                         canvas,
                         keyboard_origin_x + keys[column].x,
                         keyboard_origin_y + keys[column].y,
-                        char_to_uppercase(keys[column].text));
+                        char_to_uppercase(glyph));
                 } else {
                     canvas_draw_glyph(
                         canvas,
                         keyboard_origin_x + keys[column].x,
-                        keyboard_origin_y + keys[column].y,
-                        keys[column].text);
+                        keyboard_origin_y + keys[column].y -
+                            (glyph == '_' || char_is_lowercase(glyph)),
+                        (symbols && model->illegal_symbols) ? char_to_illegal_symbol(glyph) :
+                                                              glyph);
                 }
             }
         }
@@ -376,10 +403,8 @@ static void nfc_maker_text_input_view_draw_callback(Canvas* canvas, void* _model
     }
 }
 
-static void nfc_maker_text_input_handle_up(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputModel* model) {
-    UNUSED(nfc_maker_text_input);
+static void text_input_handle_up(TextInput* text_input, TextInputModel* model) {
+    UNUSED(text_input);
     if(model->selected_row > 0) {
         model->selected_row--;
         if(model->selected_row == 0 &&
@@ -400,10 +425,8 @@ static void nfc_maker_text_input_handle_up(
     }
 }
 
-static void nfc_maker_text_input_handle_down(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputModel* model) {
-    UNUSED(nfc_maker_text_input);
+static void text_input_handle_down(TextInput* text_input, TextInputModel* model) {
+    UNUSED(text_input);
     if(model->cursor_select) {
         model->cursor_select = false;
     } else if(model->selected_row < keyboard_row_count - 1) {
@@ -415,7 +438,7 @@ static void nfc_maker_text_input_handle_down(
         }
         if(model->selected_row == 2 &&
            model->selected_keyboard == symbol_keyboard.keyboard_index) {
-            if(model->selected_column > 7)
+            if(model->selected_column > 6)
                 model->selected_column -= 2;
             else if(model->selected_column > 1)
                 model->selected_column -= 1;
@@ -423,11 +446,10 @@ static void nfc_maker_text_input_handle_down(
     }
 }
 
-static void nfc_maker_text_input_handle_left(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputModel* model) {
-    UNUSED(nfc_maker_text_input);
+static void text_input_handle_left(TextInput* text_input, TextInputModel* model) {
+    UNUSED(text_input);
     if(model->cursor_select) {
+        model->clear_default_text = false;
         if(model->cursor_pos > 0) {
             model->cursor_pos = CLAMP(model->cursor_pos - 1, strlen(model->text_buffer), 0u);
         }
@@ -439,11 +461,10 @@ static void nfc_maker_text_input_handle_left(
     }
 }
 
-static void nfc_maker_text_input_handle_right(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputModel* model) {
-    UNUSED(nfc_maker_text_input);
+static void text_input_handle_right(TextInput* text_input, TextInputModel* model) {
+    UNUSED(text_input);
     if(model->cursor_select) {
+        model->clear_default_text = false;
         model->cursor_pos = CLAMP(model->cursor_pos + 1, strlen(model->text_buffer), 0u);
     } else if(
         model->selected_column <
@@ -454,11 +475,11 @@ static void nfc_maker_text_input_handle_right(
     }
 }
 
-static void nfc_maker_text_input_handle_ok(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputModel* model,
-    InputType type) {
-    if(model->cursor_select) return;
+static void text_input_handle_ok(TextInput* text_input, TextInputModel* model, InputType type) {
+    if(model->cursor_select) {
+        model->clear_default_text = !model->clear_default_text;
+        return;
+    }
     bool shift = type == InputTypeLong;
     bool repeat = type == InputTypeRepeat;
     char selected = get_selected_char(model);
@@ -469,7 +490,7 @@ static void nfc_maker_text_input_handle_ok(
            (!model->validator_callback(
                model->text_buffer, model->validator_text, model->validator_callback_context))) {
             model->validator_message_visible = true;
-            furi_timer_start(nfc_maker_text_input->timer, furi_kernel_get_tick_frequency() * 4);
+            furi_timer_start(text_input->timer, furi_kernel_get_tick_frequency() * 4);
         } else if(model->callback != 0 && text_length >= model->minimum_length) {
             model->callback(model->callback_context);
         }
@@ -477,14 +498,19 @@ static void nfc_maker_text_input_handle_ok(
         switch_keyboard(model);
     } else {
         if(selected == BACKSPACE_KEY) {
-            nfc_maker_text_input_backspace_cb(model);
+            text_input_backspace_cb(model);
         } else if(!repeat) {
             if(model->clear_default_text) {
                 text_length = 0;
             }
             if(text_length < (model->text_buffer_size - 1)) {
-                if(shift != (text_length == 0)) {
+                if(shift != (text_length == 0) &&
+                   model->selected_keyboard != symbol_keyboard.keyboard_index) {
                     selected = char_to_uppercase(selected);
+                }
+                if(model->selected_keyboard == symbol_keyboard.keyboard_index &&
+                   model->illegal_symbols) {
+                    selected = char_to_illegal_symbol(selected);
                 }
                 if(model->clear_default_text) {
                     model->text_buffer[0] = selected;
@@ -502,14 +528,14 @@ static void nfc_maker_text_input_handle_ok(
     }
 }
 
-static bool nfc_maker_text_input_view_input_callback(InputEvent* event, void* context) {
-    NFCMaker_TextInput* nfc_maker_text_input = context;
-    furi_assert(nfc_maker_text_input);
+static bool text_input_view_input_callback(InputEvent* event, void* context) {
+    TextInput* text_input = context;
+    furi_assert(text_input);
 
     bool consumed = false;
 
     // Acquire model
-    NFCMaker_TextInputModel* model = view_get_model(nfc_maker_text_input->view);
+    TextInputModel* model = view_get_model(text_input->view);
 
     if((!(event->type == InputTypePress) && !(event->type == InputTypeRelease)) &&
        model->validator_message_visible) {
@@ -519,19 +545,19 @@ static bool nfc_maker_text_input_view_input_callback(InputEvent* event, void* co
         consumed = true;
         switch(event->key) {
         case InputKeyUp:
-            nfc_maker_text_input_handle_up(nfc_maker_text_input, model);
+            text_input_handle_up(text_input, model);
             break;
         case InputKeyDown:
-            nfc_maker_text_input_handle_down(nfc_maker_text_input, model);
+            text_input_handle_down(text_input, model);
             break;
         case InputKeyLeft:
-            nfc_maker_text_input_handle_left(nfc_maker_text_input, model);
+            text_input_handle_left(text_input, model);
             break;
         case InputKeyRight:
-            nfc_maker_text_input_handle_right(nfc_maker_text_input, model);
+            text_input_handle_right(text_input, model);
             break;
         case InputKeyOk:
-            nfc_maker_text_input_handle_ok(nfc_maker_text_input, model, event->type);
+            text_input_handle_ok(text_input, model, event->type);
             break;
         default:
             consumed = false;
@@ -541,22 +567,22 @@ static bool nfc_maker_text_input_view_input_callback(InputEvent* event, void* co
         consumed = true;
         switch(event->key) {
         case InputKeyUp:
-            nfc_maker_text_input_handle_up(nfc_maker_text_input, model);
+            text_input_handle_up(text_input, model);
             break;
         case InputKeyDown:
-            nfc_maker_text_input_handle_down(nfc_maker_text_input, model);
+            text_input_handle_down(text_input, model);
             break;
         case InputKeyLeft:
-            nfc_maker_text_input_handle_left(nfc_maker_text_input, model);
+            text_input_handle_left(text_input, model);
             break;
         case InputKeyRight:
-            nfc_maker_text_input_handle_right(nfc_maker_text_input, model);
+            text_input_handle_right(text_input, model);
             break;
         case InputKeyOk:
-            nfc_maker_text_input_handle_ok(nfc_maker_text_input, model, event->type);
+            text_input_handle_ok(text_input, model, event->type);
             break;
         case InputKeyBack:
-            nfc_maker_text_input_backspace_cb(model);
+            text_input_backspace_cb(model);
             break;
         default:
             consumed = false;
@@ -566,22 +592,22 @@ static bool nfc_maker_text_input_view_input_callback(InputEvent* event, void* co
         consumed = true;
         switch(event->key) {
         case InputKeyUp:
-            nfc_maker_text_input_handle_up(nfc_maker_text_input, model);
+            text_input_handle_up(text_input, model);
             break;
         case InputKeyDown:
-            nfc_maker_text_input_handle_down(nfc_maker_text_input, model);
+            text_input_handle_down(text_input, model);
             break;
         case InputKeyLeft:
-            nfc_maker_text_input_handle_left(nfc_maker_text_input, model);
+            text_input_handle_left(text_input, model);
             break;
         case InputKeyRight:
-            nfc_maker_text_input_handle_right(nfc_maker_text_input, model);
+            text_input_handle_right(text_input, model);
             break;
         case InputKeyOk:
-            nfc_maker_text_input_handle_ok(nfc_maker_text_input, model, event->type);
+            text_input_handle_ok(text_input, model, event->type);
             break;
         case InputKeyBack:
-            nfc_maker_text_input_backspace_cb(model);
+            text_input_backspace_cb(model);
             break;
         default:
             consumed = false;
@@ -590,79 +616,79 @@ static bool nfc_maker_text_input_view_input_callback(InputEvent* event, void* co
     }
 
     // Commit model
-    view_commit_model(nfc_maker_text_input->view, consumed);
+    view_commit_model(text_input->view, consumed);
 
     return consumed;
 }
 
-void nfc_maker_text_input_timer_callback(void* context) {
+void text_input_timer_callback(void* context) {
     furi_assert(context);
-    NFCMaker_TextInput* nfc_maker_text_input = context;
+    TextInput* text_input = context;
 
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         { model->validator_message_visible = false; },
         true);
 }
 
-NFCMaker_TextInput* nfc_maker_text_input_alloc() {
-    NFCMaker_TextInput* nfc_maker_text_input = malloc(sizeof(NFCMaker_TextInput));
-    nfc_maker_text_input->view = view_alloc();
-    view_set_context(nfc_maker_text_input->view, nfc_maker_text_input);
-    view_allocate_model(
-        nfc_maker_text_input->view, ViewModelTypeLocking, sizeof(NFCMaker_TextInputModel));
-    view_set_draw_callback(nfc_maker_text_input->view, nfc_maker_text_input_view_draw_callback);
-    view_set_input_callback(nfc_maker_text_input->view, nfc_maker_text_input_view_input_callback);
+TextInput* text_input_alloc(void) {
+    TextInput* text_input = malloc(sizeof(TextInput));
+    text_input->view = view_alloc();
+    view_set_context(text_input->view, text_input);
+    view_allocate_model(text_input->view, ViewModelTypeLocking, sizeof(TextInputModel));
+    view_set_draw_callback(text_input->view, text_input_view_draw_callback);
+    view_set_input_callback(text_input->view, text_input_view_input_callback);
 
-    nfc_maker_text_input->timer = furi_timer_alloc(
-        nfc_maker_text_input_timer_callback, FuriTimerTypeOnce, nfc_maker_text_input);
+    text_input->timer = furi_timer_alloc(text_input_timer_callback, FuriTimerTypeOnce, text_input);
 
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         {
             model->validator_text = furi_string_alloc();
             model->minimum_length = 1;
+            model->illegal_symbols = false;
             model->cursor_pos = 0;
             model->cursor_select = false;
         },
         false);
 
-    nfc_maker_text_input_reset(nfc_maker_text_input);
+    text_input_reset(text_input);
 
-    return nfc_maker_text_input;
+    return text_input;
 }
 
-void nfc_maker_text_input_free(NFCMaker_TextInput* nfc_maker_text_input) {
-    furi_assert(nfc_maker_text_input);
+void text_input_free(TextInput* text_input) {
+    furi_check(text_input);
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         { furi_string_free(model->validator_text); },
         false);
 
     // Send stop command
-    furi_timer_stop(nfc_maker_text_input->timer);
+    furi_timer_stop(text_input->timer);
     // Release allocated memory
-    furi_timer_free(nfc_maker_text_input->timer);
+    furi_timer_free(text_input->timer);
 
-    view_free(nfc_maker_text_input->view);
+    view_free(text_input->view);
 
-    free(nfc_maker_text_input);
+    free(text_input);
 }
 
-void nfc_maker_text_input_reset(NFCMaker_TextInput* nfc_maker_text_input) {
-    furi_assert(nfc_maker_text_input);
+void text_input_reset(TextInput* text_input) {
+    furi_check(text_input);
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         {
             model->header = "";
             model->selected_row = 0;
             model->selected_column = 0;
             model->selected_keyboard = 0;
             model->minimum_length = 1;
+            model->illegal_symbols = false;
             model->clear_default_text = false;
             model->cursor_pos = 0;
             model->cursor_select = false;
@@ -678,21 +704,22 @@ void nfc_maker_text_input_reset(NFCMaker_TextInput* nfc_maker_text_input) {
         true);
 }
 
-View* nfc_maker_text_input_get_view(NFCMaker_TextInput* nfc_maker_text_input) {
-    furi_assert(nfc_maker_text_input);
-    return nfc_maker_text_input->view;
+View* text_input_get_view(TextInput* text_input) {
+    furi_check(text_input);
+    return text_input->view;
 }
 
-void nfc_maker_text_input_set_result_callback(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputCallback callback,
+void text_input_set_result_callback(
+    TextInput* text_input,
+    TextInputCallback callback,
     void* callback_context,
     char* text_buffer,
     size_t text_buffer_size,
     bool clear_default_text) {
+    furi_check(text_input);
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         {
             model->callback = callback;
             model->callback_context = callback_context;
@@ -713,23 +740,29 @@ void nfc_maker_text_input_set_result_callback(
         true);
 }
 
-void nfc_maker_text_input_set_minimum_length(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    size_t minimum_length) {
+void text_input_set_minimum_length(TextInput* text_input, size_t minimum_length) {
+    furi_check(text_input);
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         { model->minimum_length = minimum_length; },
         true);
 }
 
-void nfc_maker_text_input_set_validator(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    NFCMaker_TextInputValidatorCallback callback,
-    void* callback_context) {
+void text_input_show_illegal_symbols(TextInput* text_input, bool show) {
+    furi_check(text_input);
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view, TextInputModel * model, { model->illegal_symbols = show; }, true);
+}
+
+void text_input_set_validator(
+    TextInput* text_input,
+    TextInputValidatorCallback callback,
+    void* callback_context) {
+    furi_check(text_input);
+    with_view_model(
+        text_input->view,
+        TextInputModel * model,
         {
             model->validator_callback = callback;
             model->validator_callback_context = callback_context;
@@ -737,34 +770,29 @@ void nfc_maker_text_input_set_validator(
         true);
 }
 
-NFCMaker_TextInputValidatorCallback
-    nfc_maker_text_input_get_validator_callback(NFCMaker_TextInput* nfc_maker_text_input) {
-    NFCMaker_TextInputValidatorCallback validator_callback = NULL;
+TextInputValidatorCallback text_input_get_validator_callback(TextInput* text_input) {
+    furi_check(text_input);
+    TextInputValidatorCallback validator_callback = NULL;
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         { validator_callback = model->validator_callback; },
         false);
     return validator_callback;
 }
 
-void* nfc_maker_text_input_get_validator_callback_context(
-    NFCMaker_TextInput* nfc_maker_text_input) {
+void* text_input_get_validator_callback_context(TextInput* text_input) {
+    furi_check(text_input);
     void* validator_callback_context = NULL;
     with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
+        text_input->view,
+        TextInputModel * model,
         { validator_callback_context = model->validator_callback_context; },
         false);
     return validator_callback_context;
 }
 
-void nfc_maker_text_input_set_header_text(
-    NFCMaker_TextInput* nfc_maker_text_input,
-    const char* text) {
-    with_view_model(
-        nfc_maker_text_input->view,
-        NFCMaker_TextInputModel * model,
-        { model->header = text; },
-        true);
+void text_input_set_header_text(TextInput* text_input, const char* text) {
+    furi_check(text_input);
+    with_view_model(text_input->view, TextInputModel * model, { model->header = text; }, true);
 }

@@ -6,30 +6,29 @@
 #include <gui/modules/validators.h>
 #include <gui/view_dispatcher.h>
 #include <gui/scene_manager.h>
-#include "nfc_maker_icons.h"
+
 #include <gui/modules/submenu.h>
-#include "nfc_maker_text_input.h"
+#include "nfc_maker_icons.h"
+
+#include "dropin/text_input.h"
+
 #include <gui/modules/byte_input.h>
 #include <gui/modules/popup.h>
 #include "scenes/nfc_maker_scene.h"
 #include <lib/flipper_format/flipper_format.h>
 #include <toolbox/name_generator.h>
+
+#define NFC_APP_FOLDER    EXT_PATH("nfc")
+#define NFC_APP_EXTENSION ".nfc"
+#include <lib/nfc/protocols/mf_ultralight/mf_ultralight.h>
+#include <lib/nfc/helpers/nfc_data_generator.h>
 #include <furi_hal_bt.h>
-#include "newstrnlen.h"
 
-#include <nfc/nfc_device.h>
-#include <nfc/helpers/nfc_data_generator.h>
-#include <nfc/protocols/mf_ultralight/mf_ultralight.h>
-#include <nfc/nfc.h>
-
-#define NFC_MK_APP_FOLDER EXT_PATH("nfc")
-#define NFC_MK_APP_EXTENSION ".nfc"
-
-#define MAC_INPUT_LEN GAP_MAC_ADDR_SIZE
-#define MAIL_INPUT_LEN 128
+#define MAC_INPUT_LEN   GAP_MAC_ADDR_SIZE
+#define MAIL_INPUT_LEN  128
 #define PHONE_INPUT_LEN 17
 
-#define BIG_INPUT_LEN 248
+#define BIG_INPUT_LEN   248
 #define SMALL_INPUT_LEN 90
 
 #define NTAG_DATA_AREA_UNIT_SIZE 2 * MF_ULTRALIGHT_PAGE_SIZE
@@ -45,7 +44,6 @@ typedef enum {
 extern const NfcDataGeneratorType ntag_generators[NtagMAX];
 extern const char* ntag_names[NtagMAX];
 extern const size_t ntag_sizes[NtagMAX];
-#define MAX_NDEF_LEN ntag_sizes[NtagI2C2K]
 
 typedef enum {
     WifiAuthenticationOpen = 0x01,
@@ -68,12 +66,13 @@ typedef struct {
     SceneManager* scene_manager;
     ViewDispatcher* view_dispatcher;
     Submenu* submenu;
-    NFCMaker_TextInput* text_input;
+    TextInput* text_input;
     ByteInput* byte_input;
     Popup* popup;
 
     NfcDevice* nfc_device;
     uint8_t* ndef_buffer;
+    size_t ndef_size;
 
     uint8_t mac_buf[MAC_INPUT_LEN];
     char mail_buf[MAIL_INPUT_LEN];
@@ -83,6 +82,8 @@ typedef struct {
     char small_buf1[SMALL_INPUT_LEN];
     char small_buf2[SMALL_INPUT_LEN];
     char save_buf[BIG_INPUT_LEN];
+
+    uint8_t uid_buf[10];
 } NfcMaker;
 
 typedef enum {
@@ -91,3 +92,9 @@ typedef enum {
     NfcMakerViewByteInput,
     NfcMakerViewPopup,
 } NfcMakerView;
+
+#ifdef FW_ORIGIN_Official
+#define submenu_add_lockable_item(                                             \
+    submenu, label, index, callback, callback_context, locked, locked_message) \
+    if(!(locked)) submenu_add_item(submenu, label, index, callback, callback_context)
+#endif
